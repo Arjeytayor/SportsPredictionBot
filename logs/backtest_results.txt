@@ -1,0 +1,30 @@
+======================================================================
+SPORTS PREDICTION BOT — BACKTEST RESULTS
+Generated: 2026-08-12T07:03:53.409024
+Method: chronological walk-forward per league. Each prediction uses only
+rolling team form from matches strictly before it; history is updated
+with the real result only after scoring (no lookahead).
+======================================================================
+
+MODEL: poisson_elo
+  Total Picks: 978
+  Wins: 476  Losses: 502
+  Accuracy: 48.67%
+  Flat-Stake ROI (vs Pinnacle closing odds): -7.03%
+  League Breakdown:
+    premier_league       | Picks:  350 | Wins:  174 | Losses:  176 | Accuracy:  49.71% | ROI: -6.65%
+    la_liga              | Picks:  349 | Wins:  172 | Losses:  177 | Accuracy:  49.28% | ROI: -6.03%
+    bundesliga           | Picks:  279 | Wins:  130 | Losses:  149 | Accuracy:  46.59% | ROI: -8.76%
+
+MODEL: xgboost
+  Total Picks: 978
+  Wins: 449  Losses: 529
+  Accuracy: 45.91%
+  Flat-Stake ROI (vs Pinnacle closing odds): -1.94%
+  League Breakdown:
+    premier_league       | Picks:  350 | Wins:  156 | Losses:  194 | Accuracy:  44.57% | ROI: -2.98%
+    la_liga              | Picks:  349 | Wins:  169 | Losses:  180 | Accuracy:  48.42% | ROI: +1.33%
+    bundesliga           | Picks:  279 | Wins:  124 | Losses:  155 | Accuracy:  44.44% | ROI: -4.73%
+
+======================================================================
+

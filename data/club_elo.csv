@@ -1,0 +1,29 @@
+<!DOCTYPE HTML><html><head><title>Clubelo</title><meta http-equiv="REFRESH" content="60;url=/"></HEAD><BODY><!DOCTYPE html><html><head>
+<meta charset="utf-8"><title>Football Club Elo Ratings</title><LINK REL=StyleSheet HREF="/style.css" TYPE="text/css">
+<meta name = "author" content = "Lars Schiefler">
+<link rel="icon" type="image/x-icon" href="favicon.png" />
+</head>
+<body style=" font-family:Calibri,Sans-Serif; background-color: #080808; text-align:center;">
+<div class="alles"><div class="stammblatt"><svg width="950" height="55">
+<rect x="0" y="14" width="950" height="30" stroke="none" fill="#282828"/>
+<a xlink:href="/">
+<g transform="scale(0.5) translate(35,20)" stroke = "#FFF" stroke-width = "2" stroke-opacity = "1.0" fill="none"><rect x="-5" y="-5" width="125" height="85" stroke="none" fill = "#607242"/>
+<rect x="0" y="0" width="115" height="75" stroke-width = "2" />
+<rect x="0" y="27.5" width="6" height="20"/>
+<rect x="109" y="27.5" width="6" height="20"/>
+<polyline points="0.0,74.94 4.6,74.9 9.2,74.82 13.8,74.69 18.4,74.44 23.0,74.01 27.6,73.26 32.2,71.97 36.8,69.77 41.4,66.18 46.0,60.62 50.6,52.75 55.2,42.86 59.8,32.14 64.4,22.25 69.0,14.38 73.6,8.82 78.2,5.23 82.8,3.03 87.4,1.74 92.0,0.99 96.6,0.56 101.2,0.31 105.8,0.18 110.4,0.1 115.0,0.06" stroke-opacity = "1.0"/>
+<circle cx="57.5" cy="37.5" r="10"/></g>
+<text fill = "#EEE" x="130" y="36" text-anchor="middle" font-weight="bold" font-size="20">ClubElo</text></a>
+<g fill = "#EEE" font-size="14" text-anchor="middle">
+<text x="240" y="34"><a xlink:href="/TheCase">The Case</a></text>
+<text x="330" y="34"><a xlink:href="/System">System</a></text>
+<text x="420" y="34"><a xlink:href="/Blog">Blog</a></text>
+<text x="510" y="34"><a xlink:href="/About">About</a></text>
+<text x="600" y="34"><a xlink:href="/Data">Data</a></text>
+<text x="690" y="34"><a xlink:href="/API">API</a></text>
+<text x="780" y="34"><a xlink:href="/Stats">Stats</a></text>
+<text x="870" y="34"><a xlink:href="/Search">Search</a></text>
+</g>
+</svg></div>
+<p>Site overloaded, only cached pages available.</p><p>Redirecting to start page.</p></BODY>
+
