@@ -38,7 +38,10 @@ API_BASKETBALL_BASE = "https://v1.basketball.api-sports.io"
 API_VOLLEYBALL_BASE = "https://v1.volleyball.api-sports.io"
 API_MMA_BASE = "https://v1.mma.api-sports.io"
 BALLDONTLIE_BASE = "https://api.balldontlie.io/v1"
-CLUBELO_BULK_URL = "http://clubelo.com/download"
+# api.clubelo.com/<YYYY-MM-DD> returns a CSV of every club's rating on that date.
+# (clubelo.com/download is an HTML page, not a CSV -- it silently poisoned the cache.)
+CLUBELO_API_BASE = "http://api.clubelo.com"
+CLUBELO_BULK_URL = CLUBELO_API_BASE  # kept for backwards compatibility
 FOOTBALL_DATA_BASE = "https://www.football-data.co.uk"
 
 # ---------------------------------------------------------------------------

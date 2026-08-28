@@ -3,6 +3,14 @@ APScheduler==3.10.4
 requests==2.31.0
 pandas==2.1.4
 numpy==1.26.2
-scipy==1.11.4
+scipy==1.17.1
 python-dotenv==1.0.0
 xgboost==3.2.0
+
+# Understat xG feeds (data_soccerdata.py). Without this the xg_for/xg_against
+# features silently fall back to 0.0 instead of raising -- see model_xgboost.py.
+soccerdata==1.9.0
+
+# Dixon-Coles, Pi/Massey/Colley ratings, overround removal, RPS scoring.
+# backtest.py degrades gracefully if absent, but drops the pi_ratings model.
+penaltyblog==1.12.0

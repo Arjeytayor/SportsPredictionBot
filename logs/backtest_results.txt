@@ -1,30 +1,79 @@
 ======================================================================
 SPORTS PREDICTION BOT — BACKTEST RESULTS
-Generated: 2026-08-12T07:03:53.409024
+Generated: 2026-08-28T06:54:57.713244
 Method: chronological walk-forward per league. Each prediction uses only
 rolling team form from matches strictly before it; history is updated
 with the real result only after scoring (no lookahead).
 ======================================================================
 
 MODEL: poisson_elo
-  Total Picks: 978
-  Wins: 476  Losses: 502
-  Accuracy: 48.67%
-  Flat-Stake ROI (vs Pinnacle closing odds): -7.03%
+  Total Picks: 29438
+  Wins: 13871  Losses: 15567
+  Accuracy: 47.12%
+  Flat-Stake ROI (vs Pinnacle closing odds): -3.88%
+  Ranked Probability Score: 0.2258 (beats uniform 0.2778; lower is better)
   League Breakdown:
-    premier_league       | Picks:  350 | Wins:  174 | Losses:  176 | Accuracy:  49.71% | ROI: -6.65%
-    la_liga              | Picks:  349 | Wins:  172 | Losses:  177 | Accuracy:  49.28% | ROI: -6.03%
-    bundesliga           | Picks:  279 | Wins:  130 | Losses:  149 | Accuracy:  46.59% | ROI: -8.76%
+    premier_league       | Picks: 1849 | Wins:  952 | Losses:  897 | Accuracy:  51.49% | ROI: -2.82% | RPS: 0.2177
+    championship         | Picks: 2680 | Wins: 1175 | Losses: 1505 | Accuracy:  43.84% | ROI: -5.58% | RPS: 0.2392
+    league_one           | Picks: 2663 | Wins: 1249 | Losses: 1414 | Accuracy:  46.90% | ROI: -0.58% | RPS: 0.2312
+    league_two           | Picks: 2670 | Wins: 1147 | Losses: 1523 | Accuracy:  42.96% | ROI: -6.88% | RPS: 0.2380
+    la_liga              | Picks: 1852 | Wins:  935 | Losses:  917 | Accuracy:  50.49% | ROI: -1.36% | RPS: 0.2140
+    la_liga_2            | Picks: 2230 | Wins:  929 | Losses: 1301 | Accuracy:  41.66% | ROI: -5.87% | RPS: 0.2299
+    serie_a              | Picks: 1849 | Wins:  950 | Losses:  899 | Accuracy:  51.38% | ROI: -1.06% | RPS: 0.2105
+    serie_b              | Picks: 1806 | Wins:  757 | Losses: 1049 | Accuracy:  41.92% | ROI: -7.46% | RPS: 0.2264
+    bundesliga           | Picks: 1482 | Wins:  753 | Losses:  729 | Accuracy:  50.81% | ROI: -4.07% | RPS: 0.2260
+    bundesliga_2         | Picks: 1465 | Wins:  658 | Losses:  807 | Accuracy:  44.91% | ROI: -4.38% | RPS: 0.2462
+    ligue_1              | Picks: 1632 | Wins:  824 | Losses:  808 | Accuracy:  50.49% | ROI: -0.39% | RPS: 0.2222
+    ligue_2              | Picks: 1674 | Wins:  715 | Losses:  959 | Accuracy:  42.71% | ROI: -5.03% | RPS: 0.2369
+    eredivisie           | Picks: 1484 | Wins:  783 | Losses:  701 | Accuracy:  52.76% | ROI: -6.43% | RPS: 0.2066
+    primeira_liga        | Picks: 1480 | Wins:  818 | Losses:  662 | Accuracy:  55.27% | ROI: +0.96% | RPS: 0.1936
+    championship_playoffs | Picks: 2622 | Wins: 1226 | Losses: 1396 | Accuracy:  46.76% | ROI: -5.44% | RPS: 0.2272
 
 MODEL: xgboost
-  Total Picks: 978
-  Wins: 449  Losses: 529
-  Accuracy: 45.91%
-  Flat-Stake ROI (vs Pinnacle closing odds): -1.94%
+  Total Picks: 29438
+  Wins: 12634  Losses: 16804
+  Accuracy: 42.92%
+  Flat-Stake ROI (vs Pinnacle closing odds): -4.72%
+  Ranked Probability Score: 0.2414 (beats uniform 0.2778; lower is better)
   League Breakdown:
-    premier_league       | Picks:  350 | Wins:  156 | Losses:  194 | Accuracy:  44.57% | ROI: -2.98%
-    la_liga              | Picks:  349 | Wins:  169 | Losses:  180 | Accuracy:  48.42% | ROI: +1.33%
-    bundesliga           | Picks:  279 | Wins:  124 | Losses:  155 | Accuracy:  44.44% | ROI: -4.73%
+    premier_league       | Picks: 1849 | Wins:  815 | Losses: 1034 | Accuracy:  44.08% | ROI: -4.41% | RPS: 0.2464
+    championship         | Picks: 2680 | Wins: 1135 | Losses: 1545 | Accuracy:  42.35% | ROI: +0.35% | RPS: 0.2439
+    league_one           | Picks: 2663 | Wins: 1120 | Losses: 1543 | Accuracy:  42.06% | ROI: -3.72% | RPS: 0.2460
+    league_two           | Picks: 2670 | Wins: 1083 | Losses: 1587 | Accuracy:  40.56% | ROI: -5.03% | RPS: 0.2497
+    la_liga              | Picks: 1852 | Wins:  854 | Losses:  998 | Accuracy:  46.11% | ROI: -0.81% | RPS: 0.2257
+    la_liga_2            | Picks: 2230 | Wins:  948 | Losses: 1282 | Accuracy:  42.51% | ROI: -1.99% | RPS: 0.2337
+    serie_a              | Picks: 1849 | Wins:  767 | Losses: 1082 | Accuracy:  41.48% | ROI: -10.24% | RPS: 0.2428
+    serie_b              | Picks: 1806 | Wins:  736 | Losses: 1070 | Accuracy:  40.75% | ROI: -7.51% | RPS: 0.2335
+    bundesliga           | Picks: 1482 | Wins:  695 | Losses:  787 | Accuracy:  46.90% | ROI: -0.42% | RPS: 0.2372
+    bundesliga_2         | Picks: 1465 | Wins:  645 | Losses:  820 | Accuracy:  44.03% | ROI: -0.86% | RPS: 0.2534
+    ligue_1              | Picks: 1632 | Wins:  700 | Losses:  932 | Accuracy:  42.89% | ROI: -8.40% | RPS: 0.2464
+    ligue_2              | Picks: 1674 | Wins:  682 | Losses:  992 | Accuracy:  40.74% | ROI: -4.23% | RPS: 0.2457
+    eredivisie           | Picks: 1484 | Wins:  701 | Losses:  783 | Accuracy:  47.24% | ROI: -6.73% | RPS: 0.2275
+    primeira_liga        | Picks: 1480 | Wins:  625 | Losses:  855 | Accuracy:  42.23% | ROI: -13.96% | RPS: 0.2346
+    championship_playoffs | Picks: 2622 | Wins: 1128 | Losses: 1494 | Accuracy:  43.02% | ROI: -6.25% | RPS: 0.2455
+
+MODEL: pi_ratings
+  Total Picks: 29438
+  Wins: 13548  Losses: 15890
+  Accuracy: 46.02%
+  Flat-Stake ROI (vs Pinnacle closing odds): -2.80%
+  Ranked Probability Score: 0.2177 (beats uniform 0.2778; lower is better)
+  League Breakdown:
+    premier_league       | Picks: 1849 | Wins:  905 | Losses:  944 | Accuracy:  48.95% | ROI: -7.00% | RPS: 0.2106
+    championship         | Picks: 2680 | Wins: 1132 | Losses: 1548 | Accuracy:  42.24% | ROI: -5.08% | RPS: 0.2308
+    league_one           | Picks: 2663 | Wins: 1202 | Losses: 1461 | Accuracy:  45.14% | ROI: -2.21% | RPS: 0.2230
+    league_two           | Picks: 2670 | Wins: 1115 | Losses: 1555 | Accuracy:  41.76% | ROI: -5.54% | RPS: 0.2321
+    la_liga              | Picks: 1852 | Wins:  923 | Losses:  929 | Accuracy:  49.84% | ROI: +0.39% | RPS: 0.2066
+    la_liga_2            | Picks: 2230 | Wins:  960 | Losses: 1270 | Accuracy:  43.05% | ROI: -2.34% | RPS: 0.2195
+    serie_a              | Picks: 1849 | Wins:  969 | Losses:  880 | Accuracy:  52.41% | ROI: +6.39% | RPS: 0.2032
+    serie_b              | Picks: 1806 | Wins:  744 | Losses: 1062 | Accuracy:  41.20% | ROI: -1.75% | RPS: 0.2174
+    bundesliga           | Picks: 1482 | Wins:  737 | Losses:  745 | Accuracy:  49.73% | ROI: -2.33% | RPS: 0.2135
+    bundesliga_2         | Picks: 1465 | Wins:  618 | Losses:  847 | Accuracy:  42.18% | ROI: -3.47% | RPS: 0.2322
+    ligue_1              | Picks: 1632 | Wins:  790 | Losses:  842 | Accuracy:  48.41% | ROI: -4.68% | RPS: 0.2178
+    ligue_2              | Picks: 1674 | Wins:  709 | Losses:  965 | Accuracy:  42.35% | ROI: -2.68% | RPS: 0.2283
+    eredivisie           | Picks: 1484 | Wins:  778 | Losses:  706 | Accuracy:  52.43% | ROI: -1.30% | RPS: 0.1995
+    primeira_liga        | Picks: 1480 | Wins:  785 | Losses:  695 | Accuracy:  53.04% | ROI: -0.06% | RPS: 0.1891
+    championship_playoffs | Picks: 2622 | Wins: 1181 | Losses: 1441 | Accuracy:  45.04% | ROI: -6.62% | RPS: 0.2204
 
 ======================================================================
 

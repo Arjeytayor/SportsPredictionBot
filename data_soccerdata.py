@@ -23,6 +23,75 @@ def _load_sd():
     return _sd
 
 
+# Default season window for history pulls. Use soccerdata's unambiguous short
+# form: "2122" == 2021-22. Plain "2021" is ambiguous and resolves to 2020-21,
+# which silently skips a season.
+DEFAULT_SEASONS = ["2122", "2223", "2324", "2425"]
+
+# Cache one schedule DataFrame per (league, seasons) so pulling 20 teams costs
+# one download, not 20.
+_schedule_cache: Dict[tuple, object] = {}
+
+
+def _read_schedule(league_code: str, seasons: List[str]):
+    """Return the Understat schedule for *seasons*, memoised per league+seasons."""
+    key = (league_code, tuple(seasons))
+    if key not in _schedule_cache:
+        sd = _load_sd()
+        _schedule_cache[key] = sd.Understat(league_code, list(seasons)).read_schedule()
+    return _schedule_cache[key]
+
+
+def fetch_team_xg_history(
+    team_name: str,
+    league_code: str = "ENG-Premier League",
+    seasons: List[str] = None,
+) -> List[Dict]:
+    """Full chronological xG series for *team_name* across several seasons.
+
+    Unlike fetch_team_xg_form (single season, last N), this returns every played
+    match in date order -- long enough to be a usable time series rather than a
+    38-point fragment.
+
+    Returns:
+        List of dicts ordered oldest-first with keys:
+            date, goals_for, goals_against, xg_for, xg_against, opponent
+        Empty list on failure.
+    """
+    seasons = seasons or DEFAULT_SEASONS
+    try:
+        sched = _read_schedule(league_code, seasons)
+    except Exception as exc:
+        logger.warning(f"soccerdata Understat history failed for {team_name}: {exc}")
+        return []
+
+    rows = []
+    for _, row in sched.iterrows():
+        home, away = row.get("home_team", ""), row.get("away_team", "")
+        if team_name not in (home, away):
+            continue
+        if not row.get("is_result"):
+            continue
+
+        is_home = home == team_name
+        gf = row["home_goals"] if is_home else row["away_goals"]
+        ga = row["away_goals"] if is_home else row["home_goals"]
+        xgf = row.get("home_xg") if is_home else row.get("away_xg")
+        xga = row.get("away_xg") if is_home else row.get("home_xg")
+
+        rows.append({
+            "date": row.get("date"),
+            "goals_for": int(gf) if gf == gf else None,
+            "goals_against": int(ga) if ga == ga else None,
+            "xg_for": float(xgf) if xgf == xgf else None,
+            "xg_against": float(xga) if xga == xga else None,
+            "opponent": away if is_home else home,
+        })
+
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Understat xG form (supplements build_team_stats_from_form)
 # ---------------------------------------------------------------------------
@@ -135,7 +204,7 @@ def build_team_stats_with_xg(
         for i, xg in enumerate(xg_rows):
             if xg.get("xg_for") is not None:
                 stats[i]["xg_for"] = xg["xg_for"]
-            if xg.get("xg_away") is not None:
-                stats[i]["xg_against"] = xg["xg_away"]
+            if xg.get("xg_against") is not None:
+                stats[i]["xg_against"] = xg["xg_against"]
 
     return stats

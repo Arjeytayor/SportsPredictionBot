@@ -21,6 +21,22 @@ from model_football import predict_football
 from model_xgboost import predict_xgboost
 from logger import logger
 
+try:
+    from penaltyblog.ratings import PiRatingSystem
+    _has_pi = True
+except ImportError:
+    _has_pi = False
+
+try:
+    from penaltyblog.metrics import rps_average
+    _has_rps = True
+except ImportError:  # penaltyblog optional
+    _has_rps = False
+
+# A uniform 1/3-1/3-1/3 forecast scores RPS 0.2778. Any model scoring worse
+# than that is worse than admitting it does not know.
+RPS_UNIFORM = 0.2778
+
 MIN_HISTORY_MATCHES = 3  # skip scoring until a team has some real rolling form
 
 _LEAGUE_DISPLAY_NAMES = {
@@ -39,6 +55,9 @@ def _update_history(team_history: Dict[str, List[Dict]], team: str, goals_for: f
 def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, league_display: str) -> Dict[str, Any]:
     """Walk one league's matches chronologically, scoring one model."""
     team_history: Dict[str, List[Dict]] = {}
+    pi = PiRatingSystem() if (model_key == "pi_ratings" and _has_pi) else None
+    prob_rows: List[List[float]] = []
+    outcomes: List[int] = []
     wins = losses = 0
     stakes = 0.0
     returns = 0.0
@@ -55,7 +74,9 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
 
         if len(home_stats) >= MIN_HISTORY_MATCHES and len(away_stats) >= MIN_HISTORY_MATCHES:
             try:
-                if model_key == "xgboost":
+                if model_key == "pi_ratings":
+                    result = pi.calculate_match_probabilities(home_team, away_team)
+                elif model_key == "xgboost":
                     result = predict_xgboost(
                         home_team, away_team, home_stats, away_stats,
                         h2h_results=None, league_name=league_display,
@@ -79,6 +100,16 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
                     wins += 1
                 else:
                     losses += 1
+
+                # RPS needs a proper distribution; the models do not always
+                # normalise, so rescale before scoring.
+                if actual in ("H", "D", "A"):
+                    total_p = probs["H"] + probs["D"] + probs["A"]
+                    if total_p > 0:
+                        prob_rows.append([probs["H"] / total_p,
+                                          probs["D"] / total_p,
+                                          probs["A"] / total_p])
+                        outcomes.append({"H": 0, "D": 1, "A": 2}[actual])
             except Exception as exc:
                 logger.error(f"Backtest error [{model_key}] {home_team} v {away_team}: {exc}", exc_info=True)
 
@@ -86,10 +117,15 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
         # this match must never be visible to its own prediction.
         _update_history(team_history, home_team, float(fthg), float(ftag))
         _update_history(team_history, away_team, float(ftag), float(fthg))
+        if pi is not None:
+            pi.update_ratings(home_team, away_team, int(fthg) - int(ftag))
 
     total = wins + losses
+    rps = float(rps_average(prob_rows, outcomes)) if (_has_rps and prob_rows) else None
     return {
         "league": league_key,
+        "rps": rps,
+        "rps_n": len(prob_rows),
         "wins": wins,
         "losses": losses,
         "total_picks": total,
@@ -103,7 +139,10 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
 def run_backtest() -> Dict[str, Any]:
     """Backtest both production models (Poisson-ELO, XGBoost) chronologically,
     per league, against real historical results."""
-    per_model_leagues: Dict[str, List[Dict]] = {"poisson_elo": [], "xgboost": []}
+    models = ["poisson_elo", "xgboost"]
+    if _has_pi:
+        models.append("pi_ratings")
+    per_model_leagues: Dict[str, List[Dict]] = {m: [] for m in models}
 
     for key in LEAGUE_FILES:
         df = load_historical_csv(key)
@@ -117,13 +156,10 @@ def run_backtest() -> Dict[str, Any]:
 
         league_display = _LEAGUE_DISPLAY_NAMES.get(key, key.replace("_", " ").title())
 
-        poisson_stats = _run_model_backtest("poisson_elo", df, key, league_display)
-        if poisson_stats["total_picks"] > 0:
-            per_model_leagues["poisson_elo"].append(poisson_stats)
-
-        xgb_stats = _run_model_backtest("xgboost", df, key, league_display)
-        if xgb_stats["total_picks"] > 0:
-            per_model_leagues["xgboost"].append(xgb_stats)
+        for model_key in models:
+            stats = _run_model_backtest(model_key, df, key, league_display)
+            if stats["total_picks"] > 0:
+                per_model_leagues[model_key].append(stats)
 
     summary = {}
     for model_key, per_league in per_model_leagues.items():
@@ -132,7 +168,13 @@ def run_backtest() -> Dict[str, Any]:
         total_picks = total_wins + total_losses
         total_stakes = sum(r["stakes"] for r in per_league)
         total_returns = sum(r["returns"] for r in per_league)
+        rps_n = sum(r["rps_n"] for r in per_league if r.get("rps") is not None)
+        overall_rps = (
+            sum(r["rps"] * r["rps_n"] for r in per_league if r.get("rps") is not None) / rps_n
+            if rps_n else None
+        )
         summary[model_key] = {
+            "rps": overall_rps,
             "wins": total_wins,
             "losses": total_losses,
             "total_picks": total_picks,
@@ -167,12 +209,19 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
         lines.append(f"  Wins: {stats['wins']}  Losses: {stats['losses']}")
         lines.append(f"  Accuracy: {stats['accuracy']:.2f}%")
         lines.append(f"  Flat-Stake ROI (vs Pinnacle closing odds): {stats['roi']:.2f}%")
+        if stats.get("rps") is not None:
+            verdict = "beats" if stats["rps"] < RPS_UNIFORM else "WORSE THAN"
+            lines.append(
+                f"  Ranked Probability Score: {stats['rps']:.4f} "
+                f"({verdict} uniform {RPS_UNIFORM:.4f}; lower is better)"
+            )
         lines.append("  League Breakdown:")
         for lg in stats["leagues"]:
             lines.append(
                 f"    {lg['league']:20s} | Picks: {lg['total_picks']:4d} | "
                 f"Wins: {lg['wins']:4d} | Losses: {lg['losses']:4d} | "
                 f"Accuracy: {lg['accuracy']:6.2f}% | ROI: {lg['roi']:+.2f}%"
+                + (f" | RPS: {lg['rps']:.4f}" if lg.get("rps") is not None else "")
             )
         lines.append("")
 

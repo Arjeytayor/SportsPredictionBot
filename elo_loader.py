@@ -1,4 +1,4 @@
-"""ELO rating loader — downloads and parses Club-ELO bulk CSV.
+"""ELO rating loader -- downloads and parses Club-ELO bulk CSV.
 
 Maintains a weekly CSV from clubelo.com and provides a name-mapping layer
 that translates API-Sports team names to Club-ELO names.
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import requests
 
-from config import DATA_DIR, CACHE_DIR, CLUBELO_BULK_URL
+from config import DATA_DIR, CACHE_DIR, CLUBELO_API_BASE
 from logger import logger
 
 ELO_CSV_PATH = DATA_DIR / "club_elo.csv"
@@ -115,15 +115,39 @@ def download_elo_csv() -> None:
     if not should_download:
         return
 
+    today = datetime.now().strftime("%Y-%m-%d")
+    url = f"{CLUBELO_API_BASE}/{today}"
+
     try:
-        response = requests.get(CLUBELO_BULK_URL, timeout=30)
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
+        text = response.content.decode("utf-8", errors="replace")
+
+        # Validate before writing: a bad response (HTML holding page, redirect
+        # body) must never overwrite a good CSV. This is what let the cache sit
+        # poisoned with HTML while the log still said "Downloaded ... CSV".
+        if not _looks_like_elo_csv(text):
+            logger.error(
+                f"Club-ELO download from {url} did not return a CSV "
+                f"(first 80 chars: {text[:80]!r}) -- keeping existing file."
+            )
+            return
+
         ELO_CSV_PATH.write_bytes(response.content)
-        cache_file.write_text(datetime.now().strftime("%Y-%m-%d"))
+        cache_file.write_text(today)
         _reset_cache()
-        logger.info("Downloaded latest Club-ELO CSV.")
+        logger.info(f"Downloaded latest Club-ELO CSV from {url} ({len(text.splitlines())} rows).")
     except Exception as exc:
         logger.error(f"Failed to download Club-ELO CSV: {exc}", exc_info=True)
+
+
+def _looks_like_elo_csv(text: str) -> bool:
+    """True only if *text* has a Club-ELO CSV header with the columns we read."""
+    first = text.lstrip()[:200].splitlines()
+    if not first:
+        return False
+    header = {c.strip() for c in first[0].split(",")}
+    return {"Club", "Elo"}.issubset(header)
 
 
 def _normalise(name: str) -> str:
@@ -146,14 +170,37 @@ def _load_elo_dict() -> dict:
         return _elo_cache
 
     download_elo_csv()
+
+    # Memoise failure for the rest of the day too. Without this, a missing or
+    # unreachable feed makes every get_team_elo() call retry the download and
+    # block for the full request timeout.
     if not ELO_CSV_PATH.exists():
-        return {}
+        logger.error(
+            f"{ELO_CSV_PATH} missing and could not be downloaded -- "
+            "all teams fall back to ELO 1500 for this run."
+        )
+        _elo_cache, _elo_cache_date = {}, today
+        return _elo_cache
 
     try:
+        if not _looks_like_elo_csv(ELO_CSV_PATH.read_text(encoding="utf-8", errors="replace")):
+            logger.error(
+                f"{ELO_CSV_PATH} is not a Club-ELO CSV (stale/poisoned cache). "
+                "Every team will fall back to 1500 until it is re-downloaded."
+            )
+            _elo_cache, _elo_cache_date = {}, today
+            return _elo_cache
+
         with open(ELO_CSV_PATH, "r", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
-            _elo_cache = {row["Club"]: int(row["Elo"]) for row in reader if "Club" in row and "Elo" in row}
+            _elo_cache = {
+                row["Club"]: int(float(row["Elo"]))
+                for row in reader
+                if row.get("Club") and row.get("Elo")
+            }
             _elo_cache_date = today
+            if not _elo_cache:
+                logger.error("Club-ELO CSV parsed to zero clubs -- check the feed format.")
             return _elo_cache
     except Exception as exc:
         logger.error(f"Error parsing ELO CSV: {exc}", exc_info=True)

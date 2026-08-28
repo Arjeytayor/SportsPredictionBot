@@ -103,9 +103,9 @@ def engineer_features(
 
     # xG from Understat (if available in stats dicts)
     hxg = sum(m.get("xg_for", 0.0) for m in h_recent) / max(len(h_recent), 1)
-    hxc = sum(m.get("xg_away", 0.0) for m in h_recent) / max(len(h_recent), 1)
+    hxc = sum(m.get("xg_against", 0.0) for m in h_recent) / max(len(h_recent), 1)
     axg = sum(m.get("xg_for", 0.0) for m in a_recent) / max(len(a_recent), 1)
-    axc = sum(m.get("xg_away", 0.0) for m in a_recent) / max(len(a_recent), 1)
+    axc = sum(m.get("xg_against", 0.0) for m in a_recent) / max(len(a_recent), 1)
 
     return {
         "home_attack": hgf, "home_defense": hga,
@@ -161,6 +161,27 @@ def _fallback_predict(features: Dict[str, float]) -> Dict[str, float]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Booster cache -- the model file is ~665KB; deserialising it on every call made
+# prediction ~150x slower than the Poisson model. Keyed on mtime so a retrain is
+# picked up without restarting the process.
+# ---------------------------------------------------------------------------
+_booster = None
+_booster_mtime: float = 0.0
+
+
+def _get_booster():
+    """Return the trained Booster, loading from disk only when it has changed."""
+    global _booster, _booster_mtime
+    mtime = MODEL_PATH.stat().st_mtime
+    if _booster is None or mtime != _booster_mtime:
+        booster = xgb.Booster()
+        booster.load_model(str(MODEL_PATH))
+        _booster, _booster_mtime = booster, mtime
+        logger.info(f"Loaded XGBoost booster from {MODEL_PATH}")
+    return _booster
+
+
 def predict_xgboost(
     home_team: str,
     away_team: str,
@@ -176,8 +197,7 @@ def predict_xgboost(
 
     if _has_xgb and MODEL_PATH.exists():
         try:
-            model = xgb.Booster()
-            model.load_model(str(MODEL_PATH))
+            model = _get_booster()
             vec = _feature_vector(features)
             dmatrix = xgb.DMatrix([vec])
             probs = model.predict(dmatrix)
@@ -326,9 +346,9 @@ def train_xgboost_model() -> bool:
                 axg_data = fetch_team_xg_form(at, last_n=5)
                 if hxg_data:
                     hxg_vals = [m.get("xg_for", 0.0) for m in hxg_data if m.get("xg_for") is not None]
-                    hxc_vals = [m.get("xg_away", 0.0) for m in hxg_data if m.get("xg_away") is not None]
+                    hxc_vals = [m.get("xg_against", 0.0) for m in hxg_data if m.get("xg_against") is not None]
                     axg_vals = [m.get("xg_for", 0.0) for m in axg_data if m.get("xg_for") is not None]
-                    axc_vals = [m.get("xg_away", 0.0) for m in axg_data if m.get("xg_away") is not None]
+                    axc_vals = [m.get("xg_against", 0.0) for m in axg_data if m.get("xg_against") is not None]
                     if hxg_vals:
                         hxg = sum(hxg_vals) / len(hxg_vals)
                     if hxc_vals:
