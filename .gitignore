@@ -6,3 +6,4 @@ logs/*.log
 logs/*.log.*
 data/bot_state.json
 data/request_count_*.json
+logs/*.out

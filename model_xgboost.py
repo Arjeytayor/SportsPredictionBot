@@ -77,8 +77,14 @@ def engineer_features(
     away_stats: List[Dict],
     h2h_results: List[str] = None,
     league_name: str = "",
+    elo_diff: float = None,
 ) -> Dict[str, float]:
-    """Build feature dict from raw inputs."""
+    """Build feature dict from raw inputs.
+
+    *elo_diff* lets a caller supply a point-in-time rating difference. Training
+    must pass one: get_team_elo() returns TODAY's Club-ELO, so letting it fill
+    this in would leak a team's future strength into its 2021 rows.
+    """
     h_recent = home_stats[-10:] if len(home_stats) >= 10 else home_stats
     a_recent = away_stats[-10:] if len(away_stats) >= 10 else away_stats
 
@@ -90,10 +96,13 @@ def engineer_features(
     hfgf, hfga, hw = _form_features(home_stats)
     afgf, afga, aw = _form_features(away_stats)
 
-    try:
-        elo_d = get_team_elo(home_team) - get_team_elo(away_team)
-    except Exception:
-        elo_d = 0.0
+    if elo_diff is not None:
+        elo_d = float(elo_diff)
+    else:
+        try:
+            elo_d = get_team_elo(home_team) - get_team_elo(away_team)
+        except Exception:
+            elo_d = 0.0
 
     if h2h_results:
         hwins = sum(1 for r in h2h_results if r.upper() == "W")
@@ -218,175 +227,206 @@ def predict_xgboost(
 # ---------------------------------------------------------------------------
 # Training (call separately: python -c "from model_xgboost import train_xgboost_model; train_xgboost_model()")  # noqa: E501
 # ---------------------------------------------------------------------------
-def train_xgboost_model() -> bool:
-    """Train XGBoost on football-data.co.uk CSVs using proper rolling features."""
+# Understat only covers the big five. Every other league trains with xG at
+# 0.0, recorded honestly rather than back-filled with a league average.
+_UNDERSTAT_LEAGUES = {
+    "premier_league": "ENG-Premier League",
+    "la_liga": "ESP-La Liga",
+    "serie_a": "ITA-Serie A",
+    "bundesliga": "GER-Bundesliga",
+    "ligue_1": "FRA-Ligue 1",
+}
+
+# Elo result encoding used by penaltyblog: 0 home win, 1 draw, 2 away win.
+_ELO_RESULT = {0: 0, 1: 1, 2: 2}
+
+
+def _xg_by_date(league_key: str, teams) -> Dict[str, Dict]:
+    """Per-team {date: (xg_for, xg_against)} from Understat, for point-in-time joins.
+
+    Keyed on date because a team plays at most once a day, which sidesteps the
+    Understat-vs-football-data team naming differences for the opponent field.
+    """
+    code = _UNDERSTAT_LEAGUES.get(league_key)
+    if not code:
+        return {}
+    try:
+        from data_soccerdata import fetch_team_xg_history
+    except ImportError:
+        return {}
+
+    out: Dict[str, Dict] = {}
+    for team in teams:
+        try:
+            rows = fetch_team_xg_history(team, league_code=code)
+        except Exception:
+            continue
+        if not rows:
+            continue
+        by_date = {}
+        for r in rows:
+            d = r.get("date")
+            if d is None:
+                continue
+            key = d.date() if hasattr(d, "date") else d
+            by_date[key] = (r.get("xg_for"), r.get("xg_against"))
+        if by_date:
+            out[team] = by_date
+    return out
+
+
+def build_training_samples(use_xg: bool = True) -> List:
+    """Walk every league chronologically and emit (date, feature_vector, label).
+
+    Extracted so training and evaluation share one implementation -- the
+    original bug in this module came from the trainer reimplementing feature
+    logic that then drifted from the serving path.
+    """
+    import pandas as pd
+
+    from odds_loader import LEAGUE_FILES, load_historical_csv
+
+    try:
+        from penaltyblog.ratings import Elo
+    except ImportError:
+        logger.error("penaltyblog required for point-in-time Elo.")
+        return []
+
+    from backtest import _LEAGUE_DISPLAY_NAMES
+
+    samples = []
+    xg_hits = xg_total = 0
+
+    for league_key in LEAGUE_FILES:
+        df = load_historical_csv(league_key)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["_d"] = pd.to_datetime(df.get("Date"), dayfirst=True, errors="coerce")
+        df = df.sort_values("_d")
+
+        league_display = _LEAGUE_DISPLAY_NAMES.get(
+            league_key, league_key.replace("_", " ").title()
+        )
+        teams = set(df["HomeTeam"].dropna().astype(str).str.strip())
+        xg_map = _xg_by_date(league_key, teams) if use_xg else {}
+
+        elo = Elo()
+        history: Dict[str, List[Dict]] = {}
+        h2h: Dict[tuple, List[str]] = {}
+
+        for _, row in df.iterrows():
+            fthg, ftag = row.get("FTHG"), row.get("FTAG")
+            home = str(row.get("HomeTeam", "")).strip()
+            away = str(row.get("AwayTeam", "")).strip()
+            if pd.isna(fthg) or pd.isna(ftag) or not home or not away:
+                continue
+
+            hs, as_ = history.get(home, []), history.get(away, [])
+            if len(hs) >= 5 and len(as_) >= 5:
+                elo_d = elo.get_team_rating(home) - elo.get_team_rating(away)
+                feat = engineer_features(
+                    home, away, hs, as_,
+                    h2h_results=h2h.get((home, away)),
+                    league_name=league_display,
+                    elo_diff=elo_d,
+                )
+                fthg_i, ftag_i = int(fthg), int(ftag)
+                label = 0 if fthg_i > ftag_i else (1 if fthg_i == ftag_i else 2)
+                samples.append((row["_d"], _feature_vector(feat), label))
+
+            # ---- everything below updates state AFTER the row is emitted ----
+            fthg_f, ftag_f = float(fthg), float(ftag)
+            mdate = row["_d"].date() if pd.notna(row["_d"]) else None
+
+            for team, gf, ga in ((home, fthg_f, ftag_f), (away, ftag_f, fthg_f)):
+                entry = {"goals_for": gf, "goals_against": ga}
+                xg_total += 1
+                pair = xg_map.get(team, {}).get(mdate)
+                if pair and pair[0] is not None:
+                    entry["xg_for"], entry["xg_against"] = float(pair[0]), float(pair[1] or 0.0)
+                    xg_hits += 1
+                history.setdefault(team, []).append(entry)
+
+            outcome = 0 if fthg_f > ftag_f else (1 if fthg_f == ftag_f else 2)
+            elo.update_ratings(home, away, _ELO_RESULT[outcome])
+            h2h.setdefault((home, away), []).append(
+                "W" if outcome == 0 else ("D" if outcome == 1 else "L")
+            )
+
+    samples.sort(key=lambda s: s[0])
+    logger.info(
+        f"Built {len(samples)} samples; xG coverage "
+        f"{(xg_hits / xg_total * 100) if xg_total else 0.0:.1f}%."
+    )
+    return samples
+
+
+def train_xgboost_model(test_fraction: float = 0.2, use_xg: bool = True) -> bool:
+    """Train XGBoost walk-forward across every league CSV, with a time-ordered holdout.
+
+    Features are produced by engineer_features -- the same function the live
+    prediction path calls -- so training and serving cannot drift apart. Every
+    input is built only from matches strictly before the one being labelled:
+
+      * rolling form comes from history appended AFTER each match is recorded
+      * elo_diff is an incremental Elo, not today's Club-ELO rating
+      * xG is joined by match date, not "this team's most recent five games"
+
+    The previous implementation got all three of those wrong, and an index
+    mismatch when it rebuilt the feature vector zeroed both win-rate features
+    and wrote home_win_rate into the league_tier slot.
+    """
     if not _has_xgb:
         logger.error("xgboost not installed")
         return False
 
-    import urllib.request  # Import inside function only on train
-    import pandas as pd
+    import numpy as _np
 
-    historical_dir = BASE_DIR / "data" / "historical"
-    historical_dir.mkdir(parents=True, exist_ok=True)
+    samples = build_training_samples(use_xg=use_xg)
 
-    # Download sample if missing
-    sample = {"E0": "Premier League", "SP1": "La Liga", "D1": "Bundesliga"}
-    season = "2425"
-    for code in sample:
-        url = f"https://www.football-data.co.uk/mmz4281/{season}/{code}.csv"
-        dest = historical_dir / f"{code}.csv"
-        if not dest.exists():
-            try:
-                urllib.request.urlretrieve(url, dest)
-            except Exception:
-                pass
-
-    all_matches = []
-    for csv_file in historical_dir.glob("*.csv"):
-        try:
-            df = pd.read_csv(csv_file, encoding="latin1", on_bad_lines="skip")
-            for _, row in df.iterrows():
-                fthg = row.get("FTHG")
-                ftag = row.get("FTAG")
-                if pd.isna(fthg) or pd.isna(ftag):
-                    continue
-                ht = str(row.get("HomeTeam", "")).strip()
-                at = str(row.get("AwayTeam", "")).strip()
-                if not ht or not at:
-                    continue
-                all_matches.append({
-                    "home_team": ht, "away_team": at,
-                    "fthg": float(fthg), "ftag": float(ftag),
-                })
-        except Exception as exc:
-            logger.warning(f"Could not parse {csv_file}: {exc}")
-
-    if len(all_matches) < 100:
-        logger.warning(f"Only {len(all_matches)} rows")
+    if len(samples) < 1000:
+        logger.error(f"Only {len(samples)} training rows -- aborting.")
         return False
 
-    team_history = {}
+    split = int(len(samples) * (1.0 - test_fraction))
+    train, test = samples[:split], samples[split:]
 
-    def _team_features(team_name):
-        history = team_history.get(team_name, [])
-        if not history:
-            return {"avg_gf": 1.5, "avg_ga": 1.5, "win_rate": 0.5}
-        last_5 = history[-5:]
-        avg_gf = sum(m["goals_for"] for m in last_5) / len(last_5)
-        avg_ga = sum(m["goals_against"] for m in last_5) / len(last_5)
-        wins = sum(1 for m in last_5 if m["result"] == "W")
-        return {"avg_gf": avg_gf, "avg_ga": avg_ga, "win_rate": wins / len(last_5)}
+    X_tr = _np.array([s[1] for s in train]); y_tr = _np.array([s[2] for s in train])
+    X_te = _np.array([s[1] for s in test]);  y_te = _np.array([s[2] for s in test])
 
-    rows, labels = [], []
-    for match in all_matches:
-        ht = match["home_team"]
-        at = match["away_team"]
-
-        home_state = _team_features(ht)
-        away_state = _team_features(at)
-
-        feat = {
-            "home_attack": home_state["avg_gf"],
-            "home_defense": home_state["avg_ga"],
-            "away_attack": away_state["avg_gf"],
-            "away_defense": away_state["avg_ga"],
-            "home_form_gf": home_state["avg_gf"],
-            "home_form_ga": home_state["avg_ga"],
-            "away_form_gf": away_state["avg_gf"],
-            "away_form_ga": away_state["avg_ga"],
-            "home_xg": 0.0, "away_xg": 0.0,
-            "home_xg_against": 0.0, "away_xg_against": 0.0,
-            "home_win_rate": home_state["win_rate"],
-            "away_win_rate": away_state["win_rate"],
-            "elo_diff": 0.0,
-            "h2h_win_rate": 0.5,
-            "league_tier": 1,
-        }
-        rows.append(_feature_vector(feat))
-
-        fthg, ftag = match["fthg"], match["ftag"]
-        if fthg > ftag:
-            labels.append(0)
-        elif fthg == ftag:
-            labels.append(1)
-        else:
-            labels.append(2)
-
-        result_map = {0: "W", 1: "D", 2: "L"}
-        team_history.setdefault(ht, []).append({
-            "goals_for": fthg, "goals_against": ftag,
-            "result": result_map[labels[-1]]
-        })
-        away_result = "W" if ftag > fthg else "D" if ftag == fthg else "L"
-        team_history.setdefault(at, []).append({
-            "goals_for": ftag, "goals_against": fthg,
-            "result": away_result
-        })
-
-    if len(rows) < 100:
-        logger.warning(f"Only {len(rows)} training rows - not enough")
-        return False
-
-    # Try to fetch xG from Understat for rolling features (best-effort, cached)
-    try:
-        from data_soccerdata import fetch_team_xg_form
-    except ImportError:
-        fetch_team_xg_form = None
-
-    for i, match in enumerate(all_matches):
-        ht = match["home_team"]
-        at = match["away_team"]
-
-        # Base xG values (will be overridden if Understat data available)
-        hxg, hxc, axg, axc = 0.0, 0.0, 0.0, 0.0
-        if fetch_team_xg_form:
-            try:
-                hxg_data = fetch_team_xg_form(ht, last_n=5)
-                axg_data = fetch_team_xg_form(at, last_n=5)
-                if hxg_data:
-                    hxg_vals = [m.get("xg_for", 0.0) for m in hxg_data if m.get("xg_for") is not None]
-                    hxc_vals = [m.get("xg_against", 0.0) for m in hxg_data if m.get("xg_against") is not None]
-                    axg_vals = [m.get("xg_for", 0.0) for m in axg_data if m.get("xg_for") is not None]
-                    axc_vals = [m.get("xg_against", 0.0) for m in axg_data if m.get("xg_against") is not None]
-                    if hxg_vals:
-                        hxg = sum(hxg_vals) / len(hxg_vals)
-                    if hxc_vals:
-                        hxc = sum(hxc_vals) / len(hxc_vals)
-                    if axg_vals:
-                        axg = sum(axg_vals) / len(axg_vals)
-                    if axc_vals:
-                        axc = sum(axc_vals) / len(axc_vals)
-            except Exception:
-                pass
-
-        # Rebuild feature dict with xG
-        feat = {
-            "home_attack": rows[i][0], "home_defense": rows[i][1],
-            "away_attack": rows[i][2], "away_defense": rows[i][3],
-            "home_form_gf": rows[i][4], "home_form_ga": rows[i][5],
-            "away_form_gf": rows[i][6], "away_form_ga": rows[i][7],
-            "home_xg": hxg, "away_xg": axg,
-            "home_xg_against": hxc, "away_xg_against": axc,
-            "home_win_rate": rows[i][8], "away_win_rate": rows[i][9],
-            "elo_diff": rows[i][10], "h2h_win_rate": rows[i][11],
-            "league_tier": rows[i][12],
-        }
-        rows[i] = _feature_vector(feat)
-
-    X = np.array(rows)
-    y = np.array(labels)
-
-    dtrain = xgb.DMatrix(X, label=y)
     params = {
-        "objective": "multi:softprob",
-        "num_class": 3,
-        "max_depth": 5,
-        "eta": 0.1,
-        "eval_metric": "mlogloss",
-        "seed": 42,
+        "objective": "multi:softprob", "num_class": 3,
+        "max_depth": 5, "eta": 0.1, "eval_metric": "mlogloss", "seed": 42,
     }
-    model = xgb.train(params, dtrain, num_boost_round=100)
+    dtrain = xgb.DMatrix(X_tr, label=y_tr)
+    dtest = xgb.DMatrix(X_te, label=y_te)
+    model = xgb.train(
+        params, dtrain, num_boost_round=400,
+        evals=[(dtrain, "train"), (dtest, "holdout")],
+        early_stopping_rounds=25, verbose_eval=False,
+    )
+
+    probs = model.predict(dtest, iteration_range=(0, model.best_iteration + 1))
+    acc = float((probs.argmax(axis=1) == y_te).mean() * 100)
+
+    # Holdout RPS is the number comparable to the other models in backtest.py;
+    # holdout accuracy on its own hides calibration.
+    rps = None
+    try:
+        from penaltyblog.metrics import rps_average
+        rps = float(rps_average(probs.tolist(), y_te.tolist()))
+    except ImportError:
+        pass
+
+    logger.info(
+        f"Trained on {len(train)} rows, held out {len(test)} "
+        f"(chronological split at {train[-1][0].date()}). "
+        f"Holdout accuracy {acc:.2f}%"
+        + (f", holdout RPS {rps:.4f}" if rps is not None else "")
+        + f", best_iter={model.best_iteration}."
+    )
+
     model.save_model(str(MODEL_PATH))
-    logger.info(f"XGBoost model saved to {MODEL_PATH} with xG features")
+    logger.info(f"XGBoost model saved to {MODEL_PATH}")
     return True
