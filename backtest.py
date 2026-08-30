@@ -1,6 +1,7 @@
 """Backtesting module — walks each league's real match history chronologically
 and scores the actual production models (Poisson + ELO, XGBoost) against real
-outcomes, using flat-stake ROI vs Pinnacle closing odds (PSH, PSD, PSA columns).
+outcomes, using flat-stake ROI vs Pinnacle OPENING odds (PSH/PSD/PSA). PSCH/PSCD/PSCA
+hold the closing line, used as the benchmark and for closing-line value.
 
 For each match, a team's rolling form (last N results) is read BEFORE the
 match is scored, and only updated with the real result AFTER scoring — so no
@@ -9,9 +10,10 @@ match ever contributes to its own prediction (no lookahead).
 Usage: python backtest.py
 """
 
+import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -219,6 +221,11 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
     # Closing prices for every scored match, so ROI can be recomputed over any
     # subset later (holdout window, common sample) instead of only in aggregate.
     odds_rows: List[List[float]] = []
+    # PSH/PSD/PSA are Pinnacle's OPENING prices and PSCH/PSCD/PSCA the closing
+    # ones. Bets are struck at the open (the price you could actually take when
+    # the prediction is made); the close is the sharper line, used as the
+    # forecasting benchmark and for closing-line value.
+    close_rows: List[List[float]] = []
     # Which matches this model actually priced, so the models can be compared
     # on an identical sample rather than on whatever each one happened to cover.
     scored_keys: List[Any] = []
@@ -282,6 +289,9 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
                         scored_keys.append(idx)
                         scored_dates.append(row.get("_parsed_date"))
                         odds_rows.append([_odds_val(psh), _odds_val(psd), _odds_val(psa)])
+                        close_rows.append([_odds_val(row.get("PSCH", 0)),
+                                           _odds_val(row.get("PSCD", 0)),
+                                           _odds_val(row.get("PSCA", 0))])
             except _NotPriceable:
                 pass  # model has no opinion yet -- not an error, just no pick
             except Exception as exc:
@@ -307,6 +317,7 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
         "_prob_rows": prob_rows,
         "_outcomes": outcomes,
         "_odds_rows": odds_rows,
+        "_close_rows": close_rows,
         "wins": wins,
         "losses": losses,
         "total_picks": total,
@@ -317,9 +328,15 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
     }
 
 
-def run_backtest() -> Dict[str, Any]:
+def run_backtest(dump_rows: Optional[str] = None) -> Dict[str, Any]:
     """Backtest both production models (Poisson-ELO, XGBoost) chronologically,
-    per league, against real historical results."""
+    per league, against real historical results.
+
+    dump_rows: optional path. If given, the per-match probability/odds rows for
+    the common sample are pickled there so downstream analysis (ensembles,
+    alternative staking) can reuse them without re-running the walk-forward.
+    """
+    dump: Dict[str, Any] = {}
     models = ["poisson_elo", "xgboost"]
     if _has_pi:
         models.append("pi_ratings")
@@ -375,7 +392,22 @@ def run_backtest() -> Dict[str, Any]:
             stats["flat_holdout"] = _flat_roi(hold_rows)
             stats["value_holdout"] = _value_roi(hold_rows)
 
-            for tmp in ("_scored_keys", "_scored_dates", "_prob_rows", "_outcomes", "_odds_rows"):
+        if dump_rows is not None:
+            # Sort by match key so every model's list is index-aligned across
+            # the common sample -- ensembles rely on row i being the same match.
+            dump[key] = {
+                m: sorted(
+                    ((k, d, p, o, od, cl) for k, d, p, o, od, cl in
+                     zip(st["_scored_keys"], st["_scored_dates"], st["_prob_rows"],
+                         st["_outcomes"], st["_odds_rows"], st["_close_rows"]) if k in common),
+                    key=lambda r: r[0],
+                )
+                for m, st in league_stats.items()
+            }
+
+        for stats in league_stats.values():
+            for tmp in ("_scored_keys", "_scored_dates", "_prob_rows", "_outcomes",
+                        "_odds_rows", "_close_rows"):
                 stats.pop(tmp, None)
 
         for model_key, stats in league_stats.items():
@@ -430,6 +462,11 @@ def run_backtest() -> Dict[str, Any]:
             "leagues": per_league,
         }
 
+    if dump_rows is not None:
+        with open(dump_rows, "wb") as fh:
+            pickle.dump(dump, fh)
+        logger.info(f"Probability rows dumped to {dump_rows}")
+
     return summary
 
 
@@ -455,7 +492,7 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
         lines.append(f"  Total Picks: {stats['total_picks']}")
         lines.append(f"  Wins: {stats['wins']}  Losses: {stats['losses']}")
         lines.append(f"  Accuracy: {stats['accuracy']:.2f}%")
-        lines.append(f"  Flat-Stake ROI (vs Pinnacle closing odds): {stats['roi']:.2f}%")
+        lines.append(f"  Flat-Stake ROI (vs Pinnacle opening odds): {stats['roi']:.2f}%")
         if stats.get("rps") is not None:
             verdict = "beats" if stats["rps"] < RPS_UNIFORM else "WORSE THAN"
             lines.append(
@@ -480,18 +517,18 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
             lines.append(
                 f"  Flat-stake ROI, holdout only (>= {XGB_HOLDOUT_START.date()}): "
                 f"{fh_['roi']:+.2f}% over {int(fh_['stakes'])} bets "
-                f"(hit {fh_['hit_rate']:.2f}%) -- out-of-sample for all four models"
+                f"(hit {fh_['hit_rate']:.2f}%) at the OPENING price -- out-of-sample for all four"
             )
         if vh_.get("roi") is not None:
             lines.append(
                 f"  Value-bet ROI, holdout only: {vh_['roi']:+.2f}% over "
                 f"{int(vh_['stakes'])} bets (hit {vh_['hit_rate']:.2f}%) -- "
-                f"backing only outcomes priced above the market's implied chance"
+                f"backing only outcomes the model prices above the opening line"
             )
         elif vh_:
             lines.append(
                 "  Value-bet ROI, holdout only: no bet cleared the market price "
-                "(the model never disagreed with the close in a payable direction)"
+                "(the model never disagreed with the open in a payable direction)"
             )
         lines.append("  League Breakdown:")
         for lg in stats["leagues"]:
@@ -519,7 +556,8 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
 
 if __name__ == "__main__":
     print("Running backtest...")
-    results = run_backtest()
+    dump_path = LOGS_DIR / "prob_rows.pkl"
+    results = run_backtest(dump_rows=str(dump_path))
     save_backtest_report(results)
     for model_key, stats in results.items():
         fh = stats.get("flat_holdout") or {}

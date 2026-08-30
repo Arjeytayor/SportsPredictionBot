@@ -62,7 +62,7 @@ The free API-Sports tier (100 requests/day) can't cover a full day's fixture sla
 **No model here has a measured edge, and that is the honest headline.** Four football
 models (Poisson-ELO, XGBoost, Pi ratings, Dixon-Coles) were backtested walk-forward
 across 15 leagues and then re-scored on a held-out window, on an identical sample, against
-Pinnacle's closing odds. Out-of-sample ROI is negative for all four (best: XGBoost at
+Pinnacle's opening odds, benchmarked against the closing line. Out-of-sample ROI is negative for all four (best: XGBoost at
 −1.57%, against a bookmaker margin of roughly 2–3%). Betting only where a model prices an
 outcome above the market — the strategy anyone would actually run — makes every model
 *worse*, which is what adverse selection looks like. Full numbers and reasoning in

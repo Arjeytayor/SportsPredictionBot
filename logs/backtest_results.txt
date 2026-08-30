@@ -1,6 +1,6 @@
 ======================================================================
 SPORTS PREDICTION BOT — BACKTEST RESULTS
-Generated: 2026-08-30T10:51:07.018177
+Generated: 2026-08-30T18:29:59.864893
 Method: chronological walk-forward per league. Each prediction uses only
 rolling team form from matches strictly before it; history is updated
 with the real result only after scoring (no lookahead).
@@ -10,12 +10,12 @@ MODEL: poisson_elo
   Total Picks: 29438
   Wins: 13871  Losses: 15567
   Accuracy: 47.12%
-  Flat-Stake ROI (vs Pinnacle closing odds): -3.88%
+  Flat-Stake ROI (vs Pinnacle opening odds): -3.88%
   Ranked Probability Score: 0.2258 (beats uniform 0.2778; lower is better)
   RPS on common sample: 0.2250 (n=26910; the matches EVERY model priced -- this is the only like-for-like comparison)
   RPS on XGBoost holdout window (>= 2025-08-16): 0.2250 (n=5837; the only window where ALL FOUR models are out-of-sample)
-  Flat-stake ROI, holdout only (>= 2025-08-16): -6.43% over 2253 bets (hit 45.98%) -- out-of-sample for all four models
-  Value-bet ROI, holdout only: -6.68% over 2490 bets (hit 38.31%) -- backing only outcomes priced above the market's implied chance
+  Flat-stake ROI, holdout only (>= 2025-08-16): -6.43% over 2253 bets (hit 45.98%) at the OPENING price -- out-of-sample for all four
+  Value-bet ROI, holdout only: -6.68% over 2490 bets (hit 38.31%) -- backing only outcomes the model prices above the opening line
   League Breakdown:
     premier_league       | Picks: 1849 | Wins:  952 | Losses:  897 | Accuracy:  51.49% | ROI: -2.82% | RPS: 0.2177 | RPSc: 0.2164 | flatOOS: +0.83% | valOOS: +1.57% (n=230)
     championship         | Picks: 2680 | Wins: 1175 | Losses: 1505 | Accuracy:  43.84% | ROI: -5.58% | RPS: 0.2392 | RPSc: 0.2397 | flatOOS: -15.28% | valOOS: -1.24% (n=268)
@@ -37,12 +37,12 @@ MODEL: xgboost
   Total Picks: 29438
   Wins: 14073  Losses: 15365
   Accuracy: 47.81%
-  Flat-Stake ROI (vs Pinnacle closing odds): 0.34%
+  Flat-Stake ROI (vs Pinnacle opening odds): 0.34%
   Ranked Probability Score: 0.2159 (beats uniform 0.2778; lower is better)
   RPS on common sample: 0.2159 (n=26910; the matches EVERY model priced -- this is the only like-for-like comparison)
   RPS on XGBoost holdout window (>= 2025-08-16): 0.2152 (n=5837; the only window where ALL FOUR models are out-of-sample)
-  Flat-stake ROI, holdout only (>= 2025-08-16): -1.57% over 2253 bets (hit 48.02%) -- out-of-sample for all four models
-  Value-bet ROI, holdout only: -1.75% over 2619 bets (hit 32.46%) -- backing only outcomes priced above the market's implied chance
+  Flat-stake ROI, holdout only (>= 2025-08-16): -1.57% over 2253 bets (hit 48.02%) at the OPENING price -- out-of-sample for all four
+  Value-bet ROI, holdout only: -1.75% over 2619 bets (hit 32.46%) -- backing only outcomes the model prices above the opening line
   League Breakdown:
     premier_league       | Picks: 1849 | Wins:  996 | Losses:  853 | Accuracy:  53.87% | ROI: +4.27% | RPS: 0.1996 | RPSc: 0.1986 | flatOOS: +3.82% | valOOS: +5.27% (n=264)
     championship         | Picks: 2680 | Wins: 1253 | Losses: 1427 | Accuracy:  46.75% | ROI: +4.45% | RPS: 0.2201 | RPSc: 0.2205 | flatOOS: -5.19% | valOOS: -4.28% (n=270)
@@ -64,12 +64,12 @@ MODEL: pi_ratings
   Total Picks: 29438
   Wins: 13548  Losses: 15890
   Accuracy: 46.02%
-  Flat-Stake ROI (vs Pinnacle closing odds): -2.80%
+  Flat-Stake ROI (vs Pinnacle opening odds): -2.80%
   Ranked Probability Score: 0.2177 (beats uniform 0.2778; lower is better)
   RPS on common sample: 0.2175 (n=26910; the matches EVERY model priced -- this is the only like-for-like comparison)
   RPS on XGBoost holdout window (>= 2025-08-16): 0.2182 (n=5837; the only window where ALL FOUR models are out-of-sample)
-  Flat-stake ROI, holdout only (>= 2025-08-16): -2.88% over 2253 bets (hit 45.72%) -- out-of-sample for all four models
-  Value-bet ROI, holdout only: -4.83% over 3246 bets (hit 34.53%) -- backing only outcomes priced above the market's implied chance
+  Flat-stake ROI, holdout only (>= 2025-08-16): -2.88% over 2253 bets (hit 45.72%) at the OPENING price -- out-of-sample for all four
+  Value-bet ROI, holdout only: -4.83% over 3246 bets (hit 34.53%) -- backing only outcomes the model prices above the opening line
   League Breakdown:
     premier_league       | Picks: 1849 | Wins:  905 | Losses:  944 | Accuracy:  48.95% | ROI: -7.00% | RPS: 0.2106 | RPSc: 0.2106 | flatOOS: +0.23% | valOOS: +9.98% (n=294)
     championship         | Picks: 2680 | Wins: 1132 | Losses: 1548 | Accuracy:  42.24% | ROI: -5.08% | RPS: 0.2308 | RPSc: 0.2307 | flatOOS: -11.48% | valOOS: -9.68% (n=353)
@@ -91,12 +91,12 @@ MODEL: dixon_coles
   Total Picks: 26910
   Wins: 13109  Losses: 13801
   Accuracy: 48.71%
-  Flat-Stake ROI (vs Pinnacle closing odds): -3.69%
+  Flat-Stake ROI (vs Pinnacle opening odds): -3.69%
   Ranked Probability Score: 0.2112 (beats uniform 0.2778; lower is better)
   RPS on common sample: 0.2112 (n=26910; the matches EVERY model priced -- this is the only like-for-like comparison)
   RPS on XGBoost holdout window (>= 2025-08-16): 0.2112 (n=5837; the only window where ALL FOUR models are out-of-sample)
-  Flat-stake ROI, holdout only (>= 2025-08-16): -6.03% over 2253 bets (hit 47.63%) -- out-of-sample for all four models
-  Value-bet ROI, holdout only: -9.09% over 2442 bets (hit 29.65%) -- backing only outcomes priced above the market's implied chance
+  Flat-stake ROI, holdout only (>= 2025-08-16): -6.03% over 2253 bets (hit 47.63%) at the OPENING price -- out-of-sample for all four
+  Value-bet ROI, holdout only: -9.09% over 2442 bets (hit 29.65%) -- backing only outcomes the model prices above the opening line
   League Breakdown:
     premier_league       | Picks: 1679 | Wins:  890 | Losses:  789 | Accuracy:  53.01% | ROI: -0.87% | RPS: 0.2036 | RPSc: 0.2036 | flatOOS: +1.62% | valOOS: +4.24% (n=242)
     championship         | Picks: 2516 | Wins: 1143 | Losses: 1373 | Accuracy:  45.43% | ROI: -5.59% | RPS: 0.2211 | RPSc: 0.2211 | flatOOS: -10.11% | valOOS: -13.62% (n=250)

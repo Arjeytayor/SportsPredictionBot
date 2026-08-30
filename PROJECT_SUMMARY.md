@@ -307,14 +307,14 @@ type logs\errors.log
 - **Trained the real XGBoost model**: `python -c "from model_xgboost import train_xgboost_model; train_xgboost_model()"` on the existing E0/SP1/D1 historicals — `data/xgboost_football.json` now exists (100 boosted rounds, loads and predicts correctly).
 - **`model_xgboost.py`**: `predict_xgboost()` now returns `"source": "trained"` or `"source": "fallback"` so callers know which path actually produced a given prediction.
 - **`scheduler.py`**: pick labeling now reads that `source` flag — only says `"XGBoost ML"` when the trained model genuinely ran; otherwise labels it `"XGBoost (fallback heuristic)"`. No more silent mislabeling.
-- **`backtest.py`**: rewritten to walk each league chronologically, building each team's rolling form match-by-match and scoring the *actual* production models (`predict_football`, `predict_xgboost`) — never the match's own outcome (no lookahead). Real run: **978 picks per model across Premier League / La Liga / Bundesliga** — Poisson-ELO 48.67% accuracy / -7.03% ROI, XGBoost 45.91% accuracy / -1.94% ROI vs Pinnacle closing odds. Full breakdown in `logs/backtest_results.txt`. *(Superseded by §13 — that run covered 3 leagues and 2 models, and its ROI was computed over matches XGBoost had trained on.)*
+- **`backtest.py`**: rewritten to walk each league chronologically, building each team's rolling form match-by-match and scoring the *actual* production models (`predict_football`, `predict_xgboost`) — never the match's own outcome (no lookahead). Real run: **978 picks per model across Premier League / La Liga / Bundesliga** — Poisson-ELO 48.67% accuracy / -7.03% ROI, XGBoost 45.91% accuracy / -1.94% ROI vs Pinnacle odds. Full breakdown in `logs/backtest_results.txt`. *(Superseded by §13 — that run covered 3 leagues and 2 models, and its ROI was computed over matches XGBoost had trained on.)*
 - `test_dual_model.py` re-run and still passes end-to-end after all changes.
 
 ### Still open
 - API-Sports free tier (100 req/day) remains the live-pipeline blocker (§10/§11) —
   unrelated to model correctness, not addressed in this pass.
 - Backtest accuracy (~46-49%) and negative ROI are honest results, not a marketing
-  number — flat-staking every model pick against closing odds is a hard way to turn a
+  number — flat-staking every model pick against the market is a hard way to turn a
   profit and isn't expected to be profitable; the value is in the methodology being
   real and reproducible, not in the ROI being positive.
 
@@ -354,7 +354,7 @@ Two changes fixed it:
    positive EV at the offered price. The margin is deliberately **not** removed: you bet
    the price you are given.
 
-### Results (out-of-sample, identical sample, Pinnacle closing odds)
+### Results (out-of-sample, identical sample, Pinnacle opening odds)
 
 | Model | Accuracy | RPS | Flat ROI | Value ROI |
 |---|---|---|---|---|
@@ -363,7 +363,7 @@ Two changes fixed it:
 | pi_ratings | 46.02% | 0.2182 | −2.88% | −4.83% (n=3246) |
 | poisson_elo | 47.12% | 0.2250 | −6.43% | −6.68% (n=2490) |
 
-Margin-free Pinnacle scores **0.2042** — better than all four.
+Margin-free Pinnacle scores **0.2042** — better than all four. (That is the margin-free *opening* line; benchmarked against the sharper **close** the market scores **0.1981**, so the gap is wider still. See the correction below.)
 
 ### What the numbers say
 - **Nothing is profitable out-of-sample.** XGBoost's −1.57% is the least-bad, but
@@ -400,6 +400,96 @@ of sample the figure did not shrink; it grew to **+12.33%**. It is still noise:
 
 Generalising: 22 of 60 cells (37%) are positive out-of-sample, which is what you get from
 a losing process with per-league samples of ~150 bets. No league survives as an edge.
+
+### Does an ensemble beat the market? No -- but it beats every single model
+`ensemble_eval.py` reuses the probability rows dumped by `backtest.py`
+(`logs/prob_rows.pkl`, gitignored) so blends can be scored without re-running the
+walk-forward. Weights are grid-searched on the first half of the priced holdout and
+**everything -- market included -- is scored on the held-back second half (1,125
+matches)**. Note this is the *priced* subset, so RPS here is not comparable to the
+`rps_holdout` figures above, which cover all 5,837 common holdout matches.
+
+| Forecast | RPS | Flat ROI | Value ROI |
+|---|---|---|---|
+| **MARKET (margin-free close)** | **0.1981** | -4.36% | +5.14% |
+| ENSEMBLE linear (fitted) | 0.2009 | -2.77% | -8.54% |
+| ENSEMBLE logpool (fitted) | 0.2015 | -3.00% | -7.60% |
+| ENSEMBLE mean (equal weight) | 0.2026 | -2.91% | -8.23% |
+| xgboost | 0.2032 | +0.57% | -3.38% |
+| ENSEMBLE logpool (equal weight) | 0.2036 | -4.11% | -5.60% |
+| dixon_coles | 0.2065 | -6.06% | -12.88% |
+| pi_ratings | 0.2119 | -0.85% | -4.16% |
+| poisson_elo | 0.2176 | -5.60% | -8.28% |
+
+Fitted weights: dixon_coles 0.40, xgboost 0.50, pi_ratings 0.10, **poisson_elo 0.00**.
+
+- **Blending genuinely helps.** Even equal weights (0.2026) beat every individual model.
+  Fitting closes a little more, to 0.2009.
+- **It is not enough.** The market sits at 0.1981. Ensembling closes roughly 40% of the
+  gap between the best single model and the close, and stops there. The residual is not
+  a weighting problem -- these models are all Poisson-family or form-based on the same
+  features, so their errors are correlated and averaging cannot remove what none of them
+  knows.
+- **Poisson-ELO earns weight 0.00.** The fitted blend discards it entirely; it carries no
+  information the other three lack. Dixon-Coles 0.50, XGBoost 0.40, Pi ratings 0.10.
+- **Adverse selection survives ensembling.** The best forecaster here posts the *second
+  worst* value ROI (-9.33%). Better probabilities did not translate into better bets.
+- XGBoost's +0.57% flat on this half is noise on 1,125 bets, and its own value book
+  (-3.38%) contradicts it.
+
+This closes the modelling question: no individual model and no combination of them beats
+Pinnacle's closing line, so there is no edge here to stake.
+
+### Correction: those are OPENING odds, not closing
+football-data.co.uk ships two Pinnacle lines: `PSH/PSD/PSA` are the **opening** prices
+and `PSCH/PSCD/PSCA` the **closing** ones. `odds_loader.py` has always read the opening
+columns, while this file, the README, the report and commit `abdf36d` all said "closing
+odds". Every number was internally consistent; the label was wrong.
+
+Which way it cuts matters: the open is the *softer* line (margin 4.61% vs 3.69% at the
+close). The models were betting into the more beatable price and still lost, so the
+negative result survives and strengthens. That was luck rather than care -- the benchmark
+should have been pinned down before any conclusion was drawn.
+
+Now fixed: bets are still struck at the **open**, which is the price you could actually
+take when the prediction is made, and the **close** is used as the forecasting benchmark
+and for closing-line value.
+
+### Closing-line value: the definitive test, and it is negative
+CLV asks whether the price moved toward a bet after it was struck. If a model knows
+something, the market should end up agreeing with it. It does not depend on who won, so
+it carries far less variance than ROI -- roughly a thousand bets say what tens of
+thousands of settled results would. Scored on the same held-back 1,125 matches:
+
+| Selection | mean CLV | t vs 0 | % of bets beating the close |
+|---|---|---|---|
+| poisson_elo | -0.388% | -2.00 | 40.0% |
+| pi_ratings | -0.587% | -3.39 | 39.6% |
+| ENSEMBLE mean | -0.718% | -3.74 | 38.8% |
+| **back the favourite (no model)** | **-0.768%** | -- | -- |
+| xgboost | -0.910% | -4.64 | 37.6% |
+| dixon_coles | -0.968% | -5.09 | 38.5% |
+| *random bet, no selection* | *-1.105%* | -8.67 | 39.9% |
+
+- **Every model has significantly negative CLV.** None beats the close. This is the
+  cleanest statement of the whole exercise: there is no edge here.
+- **The right baseline is -0.768%, not zero.** Backing the market favourite blindly earns
+  that, purely because short prices drift differently from long ones. Every model picks
+  the favourite 72-87% of the time, so that is what they must be measured against.
+- **Dixon-Coles and XGBoost -- the two best forecasters -- do worse than backing the
+  favourite blindly.** Dixon-Coles picks favourites most often of all (86.9%) and still
+  posts the worst CLV, so this is not a longshot artifact; it is genuinely poor selection.
+- Poisson-ELO sits ~2 SE above the favourite baseline while taking *longer* prices (2.15
+  vs 1.99). Suggestive at best: four models were tested, and it is the weakest forecaster
+  of the four and earns weight 0.00 in the ensemble.
+
+### The machinery works -- a positive control
+The margin-free **closing** line, used as a forecast and staked at the **opening** price,
+returns **+5.14% on 687 value bets**. That is real and expected: it is just "bet where
+the close disagrees with the open", and the close is the sharper line. It matters because
+it proves the value-betting and CLV code detects an edge when a genuine one is present.
+The models' negative results are therefore a finding about the models, not an artifact of
+the measurement.
 
 ### Still open / not measured
 - **Basketball, volleyball and MMA** (~300 lines) have no local data, no trained
