@@ -29,7 +29,9 @@ LEAGUE_FILES = {
     "ligue_2": "F2",
     "eredivisie": "N1",
     "primeira_liga": "P1",
-    "championship_playoffs": "EC",
+    # EC is football-data.co.uk's National League (English 5th tier), NOT a
+    # Championship play-off feed. The data was always right; the name wasn't.
+    "national_league": "EC",
 }
 
 

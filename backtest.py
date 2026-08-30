@@ -141,6 +141,74 @@ class _DixonColesFitter:
         return {"home_win": float(home_p), "draw": float(draw_p), "away_win": float(away_p)}
 
 
+def _odds_val(x: Any) -> float:
+    """Coerce a raw odds cell to a float; 0.0 means 'no price available'."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return 0.0
+    # A decimal price below 1.0 pays less than the stake -- always a bad cell.
+    return v if v >= 1.0 else 0.0
+
+
+def _flat_roi(rows: List[Any]) -> Dict[str, float]:
+    """Back the model's most likely outcome, one unit a match, at the close.
+
+    This is the strategy the report has always quoted. It bets every match
+    whether or not the model disagrees with the market, so it pays the
+    bookmaker's margin on every ticket by construction.
+    """
+    stakes = returns = 0.0
+    wins = 0
+    for probs, outcome, odds in rows:
+        pick = max(range(3), key=lambda i: probs[i])
+        price = odds[pick]
+        if price <= 0:
+            continue
+        stakes += 1.0
+        if pick == outcome:
+            returns += price
+            wins += 1
+    return {
+        "stakes": stakes, "returns": returns, "wins": wins,
+        # Derived here so a book carries its own ROI at any level. The
+        # aggregate re-derives from summed stakes/returns rather than
+        # averaging these, which would weight small leagues equally.
+        "roi": ((returns - stakes) / stakes * 100) if stakes > 0 else None,
+        "hit_rate": (wins / stakes * 100) if stakes > 0 else None,
+    }
+
+
+def _value_roi(rows: List[Any], edge: float = 0.0) -> Dict[str, float]:
+    """Back only outcomes the model prices higher than the market does.
+
+    A bet goes on when p_model > (1 + edge) / price, i.e. positive expected
+    value at the offered odds. Unlike the flat strategy this declines most
+    matches, which is the point -- beating the close on selected games is the
+    only way a model can win money at all.
+    """
+    stakes = returns = 0.0
+    wins = 0
+    for probs, outcome, odds in rows:
+        for i in range(3):
+            price = odds[i]
+            if price <= 0:
+                continue
+            if probs[i] > (1.0 + edge) / price:
+                stakes += 1.0
+                if i == outcome:
+                    returns += price
+                    wins += 1
+    return {
+        "stakes": stakes, "returns": returns, "wins": wins,
+        # Derived here so a book carries its own ROI at any level. The
+        # aggregate re-derives from summed stakes/returns rather than
+        # averaging these, which would weight small leagues equally.
+        "roi": ((returns - stakes) / stakes * 100) if stakes > 0 else None,
+        "hit_rate": (wins / stakes * 100) if stakes > 0 else None,
+    }
+
+
 def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, league_display: str) -> Dict[str, Any]:
     """Walk one league's matches chronologically, scoring one model."""
     team_history: Dict[str, List[Dict]] = {}
@@ -148,6 +216,9 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
     dc = _DixonColesFitter() if (model_key == "dixon_coles" and _has_dc) else None
     prob_rows: List[List[float]] = []
     outcomes: List[int] = []
+    # Closing prices for every scored match, so ROI can be recomputed over any
+    # subset later (holdout window, common sample) instead of only in aggregate.
+    odds_rows: List[List[float]] = []
     # Which matches this model actually priced, so the models can be compared
     # on an identical sample rather than on whatever each one happened to cover.
     scored_keys: List[Any] = []
@@ -210,6 +281,7 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
                         outcomes.append({"H": 0, "D": 1, "A": 2}[actual])
                         scored_keys.append(idx)
                         scored_dates.append(row.get("_parsed_date"))
+                        odds_rows.append([_odds_val(psh), _odds_val(psd), _odds_val(psa)])
             except _NotPriceable:
                 pass  # model has no opinion yet -- not an error, just no pick
             except Exception as exc:
@@ -234,6 +306,7 @@ def _run_model_backtest(model_key: str, df: pd.DataFrame, league_key: str, leagu
         "_scored_dates": scored_dates,
         "_prob_rows": prob_rows,
         "_outcomes": outcomes,
+        "_odds_rows": odds_rows,
         "wins": wins,
         "losses": losses,
         "total_picks": total,
@@ -291,7 +364,18 @@ def run_backtest() -> Dict[str, Any]:
                 float(rps_average([p for p, _ in pairs], [o for _, o in pairs]))
                 if (_has_rps and pairs) else None
             )
-            for tmp in ("_scored_keys", "_scored_dates", "_prob_rows", "_outcomes"):
+
+            # ROI over the holdout window only. The headline ROI includes the
+            # matches XGBoost trained on, so it flatters that model and cannot
+            # be read as an edge; this subset is out-of-sample for all four.
+            hold_rows = [(p, o, od) for k, d, p, o, od in
+                         zip(stats["_scored_keys"], stats["_scored_dates"],
+                             stats["_prob_rows"], stats["_outcomes"], stats["_odds_rows"])
+                         if k in common and d is not None and d >= XGB_HOLDOUT_START]
+            stats["flat_holdout"] = _flat_roi(hold_rows)
+            stats["value_holdout"] = _value_roi(hold_rows)
+
+            for tmp in ("_scored_keys", "_scored_dates", "_prob_rows", "_outcomes", "_odds_rows"):
                 stats.pop(tmp, None)
 
         for model_key, stats in league_stats.items():
@@ -320,7 +404,19 @@ def run_backtest() -> Dict[str, Any]:
             sum(r["rps_holdout"] * r["rps_holdout_n"] for r in per_league if r.get("rps_holdout") is not None) / hold_n
             if hold_n else None
         )
+        def _book(field: str) -> Dict[str, float]:
+            st = sum(r.get(field, {}).get("stakes", 0.0) for r in per_league)
+            rt = sum(r.get(field, {}).get("returns", 0.0) for r in per_league)
+            wn = sum(r.get(field, {}).get("wins", 0) for r in per_league)
+            return {
+                "stakes": st, "returns": rt, "wins": wn,
+                "roi": ((rt - st) / st * 100) if st > 0 else None,
+                "hit_rate": (wn / st * 100) if st > 0 else None,
+            }
+
         summary[model_key] = {
+            "flat_holdout": _book("flat_holdout"),
+            "value_holdout": _book("value_holdout"),
             "rps": overall_rps,
             "rps_holdout": overall_hold,
             "rps_holdout_n": hold_n,
@@ -378,6 +474,25 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
                 f"{stats['rps_holdout']:.4f} (n={stats['rps_holdout_n']}; "
                 f"the only window where ALL FOUR models are out-of-sample)"
             )
+        fh_ = stats.get("flat_holdout") or {}
+        vh_ = stats.get("value_holdout") or {}
+        if fh_.get("roi") is not None:
+            lines.append(
+                f"  Flat-stake ROI, holdout only (>= {XGB_HOLDOUT_START.date()}): "
+                f"{fh_['roi']:+.2f}% over {int(fh_['stakes'])} bets "
+                f"(hit {fh_['hit_rate']:.2f}%) -- out-of-sample for all four models"
+            )
+        if vh_.get("roi") is not None:
+            lines.append(
+                f"  Value-bet ROI, holdout only: {vh_['roi']:+.2f}% over "
+                f"{int(vh_['stakes'])} bets (hit {vh_['hit_rate']:.2f}%) -- "
+                f"backing only outcomes priced above the market's implied chance"
+            )
+        elif vh_:
+            lines.append(
+                "  Value-bet ROI, holdout only: no bet cleared the market price "
+                "(the model never disagreed with the close in a payable direction)"
+            )
         lines.append("  League Breakdown:")
         for lg in stats["leagues"]:
             lines.append(
@@ -386,6 +501,11 @@ def save_backtest_report(results: Dict[str, Any], path: Path = None) -> None:
                 f"Accuracy: {lg['accuracy']:6.2f}% | ROI: {lg['roi']:+.2f}%"
                 + (f" | RPS: {lg['rps']:.4f}" if lg.get("rps") is not None else "")
                 + (f" | RPSc: {lg['rps_common']:.4f}" if lg.get("rps_common") is not None else "")
+                + (f" | flatOOS: {lg['flat_holdout']['roi']:+.2f}%"
+                   if (lg.get("flat_holdout") or {}).get("roi") is not None else "")
+                + (f" | valOOS: {lg['value_holdout']['roi']:+.2f}%"
+                   f" (n={int(lg['value_holdout']['stakes'])})"
+                   if (lg.get("value_holdout") or {}).get("roi") is not None else "")
             )
         lines.append("")
 
@@ -402,4 +522,16 @@ if __name__ == "__main__":
     results = run_backtest()
     save_backtest_report(results)
     for model_key, stats in results.items():
-        print(f"{model_key}: Accuracy={stats['accuracy']:.2f}%  ROI={stats['roi']:.2f}%  Picks={stats['total_picks']}")
+        fh = stats.get("flat_holdout") or {}
+        vh = stats.get("value_holdout") or {}
+        def _pct(b):
+            return f"{b['roi']:+.2f}%" if b.get("roi") is not None else "n/a"
+        print(
+            f"{model_key:12s} acc={stats['accuracy']:.2f}%  "
+            f"RPS_hold={stats['rps_holdout']:.4f}  " if stats.get("rps_holdout") is not None
+            else f"{model_key:12s} acc={stats['accuracy']:.2f}%  "
+        )
+        print(
+            f"             flat_ROI_hold={_pct(fh)} (n={int(fh.get('stakes', 0))})  "
+            f"value_ROI_hold={_pct(vh)} (n={int(vh.get('stakes', 0))})"
+        )

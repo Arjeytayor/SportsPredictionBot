@@ -307,7 +307,7 @@ type logs\errors.log
 - **Trained the real XGBoost model**: `python -c "from model_xgboost import train_xgboost_model; train_xgboost_model()"` on the existing E0/SP1/D1 historicals — `data/xgboost_football.json` now exists (100 boosted rounds, loads and predicts correctly).
 - **`model_xgboost.py`**: `predict_xgboost()` now returns `"source": "trained"` or `"source": "fallback"` so callers know which path actually produced a given prediction.
 - **`scheduler.py`**: pick labeling now reads that `source` flag — only says `"XGBoost ML"` when the trained model genuinely ran; otherwise labels it `"XGBoost (fallback heuristic)"`. No more silent mislabeling.
-- **`backtest.py`**: rewritten to walk each league chronologically, building each team's rolling form match-by-match and scoring the *actual* production models (`predict_football`, `predict_xgboost`) — never the match's own outcome (no lookahead). Real run: **978 picks per model across Premier League / La Liga / Bundesliga** — Poisson-ELO 48.67% accuracy / -7.03% ROI, XGBoost 45.91% accuracy / -1.94% ROI vs Pinnacle closing odds. Full breakdown in `logs/backtest_results.txt`.
+- **`backtest.py`**: rewritten to walk each league chronologically, building each team's rolling form match-by-match and scoring the *actual* production models (`predict_football`, `predict_xgboost`) — never the match's own outcome (no lookahead). Real run: **978 picks per model across Premier League / La Liga / Bundesliga** — Poisson-ELO 48.67% accuracy / -7.03% ROI, XGBoost 45.91% accuracy / -1.94% ROI vs Pinnacle closing odds. Full breakdown in `logs/backtest_results.txt`. *(Superseded by §13 — that run covered 3 leagues and 2 models, and its ROI was computed over matches XGBoost had trained on.)*
 - `test_dual_model.py` re-run and still passes end-to-end after all changes.
 
 ### Still open
@@ -320,13 +320,119 @@ type logs\errors.log
 
 ---
 
-## 📌 Last Updated: 2026-08-12
+## 13. Phase 4: Four Models, 15 Leagues, and an Honest Answer on Profitability (2026-08-29/30)
 
-**Current status**: Phase 3 complete — trained model exists on disk, model attribution is
-honest, backtest validates real production models against real historical outcomes with a
-logged, reproducible report.
+Covers two commits that were never written up (`84b01a1`, `89c3134`) plus the
+out-of-sample evaluation that followed.
 
-**Pending options** (still open from Phase 2, unrelated to this pass):
+### What was added
+- **15 leagues** of football-data.co.uk history (E0–E3, EC, SP1/SP2, I1/I2, D1/D2,
+  F1/F2, N1, P1) replacing the original three, via a new `fetch_historical.py`.
+- **Two more models**, taking the roster to four: **Pi ratings** (`84b01a1`) and
+  **Dixon-Coles** (`89c3134`) — batch MLE with the tau low-score correction, wrapped
+  walk-forward by `_DixonColesFitter` (refit every 10 matches, 200-match minimum,
+  time-decay xi = 0.0018 with the decay anchored on the match being predicted, not the
+  end of the file, which would leak the future).
+- **RPS (Ranked Probability Score)** as the primary forecast metric. Accuracy throws
+  away everything except which outcome ranked first; RPS scores the whole distribution
+  and respects the ordering of home/draw/away. Uniform = 0.2778.
+- **XGBoost trainer rebuilt** (`89c3134`), and the `model_xgboost.py` internals reworked.
+
+### The measurement problem this pass fixed
+The single ROI figure the report had always quoted was computed over **every** match —
+including the ~80% that XGBoost was trained on. It flattered that model and could not
+answer the only question that matters: *is any of this profitable?*
+
+Two changes fixed it:
+1. **A holdout window.** `XGB_HOLDOUT_START = 2025-08-16`; only matches on or after it
+   are out-of-sample for all four models. RPS and ROI are also restricted to `common`,
+   the intersection of matches every model successfully scored, so the four books run
+   on an identical sample (2,253 flat bets) and are directly comparable.
+2. **A value-bet track.** Backing the model's favourite in every match is not a strategy
+   anyone would run — it pays the bookmaker's margin on every ticket by construction.
+   The value book bets outcome *i* only when `p_model[i] > (1 + edge) / price[i]`, i.e.
+   positive EV at the offered price. The margin is deliberately **not** removed: you bet
+   the price you are given.
+
+### Results (out-of-sample, identical sample, Pinnacle closing odds)
+
+| Model | Accuracy | RPS | Flat ROI | Value ROI |
+|---|---|---|---|---|
+| dixon_coles | 48.71% | **0.2112** | −6.03% | **−9.09%** (n=2442) |
+| xgboost | 47.81% | 0.2152 | **−1.57%** | −1.75% (n=2619) |
+| pi_ratings | 46.02% | 0.2182 | −2.88% | −4.83% (n=3246) |
+| poisson_elo | 47.12% | 0.2250 | −6.43% | −6.68% (n=2490) |
+
+Margin-free Pinnacle scores **0.2042** — better than all four.
+
+### What the numbers say
+- **Nothing is profitable out-of-sample.** XGBoost's −1.57% is the least-bad, but
+  Pinnacle's margin is roughly 2–3%, so that is a model performing near the market and
+  paying the vig. A smaller loss, not an edge.
+- **Value betting is worse than flat betting for every single model.** Where these
+  models disagree with the close, the close is right. Textbook adverse selection:
+  filtering for "my probability exceeds the market's" preferentially selects the matches
+  where the model's probability is too high.
+- **The best forecaster is the worst bettor.** Dixon-Coles leads on both RPS and
+  accuracy and posts the worst value ROI. Good overall calibration concentrates the
+  *residual* disagreements with the market in genuine overconfidence — exactly what
+  value selection targets. Ranking by forecast quality does not rank by profitability.
+- **Any full-sample XGBoost ROI is in-sample and must be ignored**, including the
+  +0.34% the report shows. This is the specific trap the holdout window exists to close.
+
+### The Serie A anomaly, and why it is nothing
+Pi ratings showed **+6.39% ROI over 1,849 Serie A picks** on the full sample — the one
+positive that needed explaining. Per-league holdout columns were added to settle it. Out
+of sample the figure did not shrink; it grew to **+12.33%**. It is still noise:
+
+- Across all **60 league x model cells**, out-of-sample ROI has a standard deviation of
+  **9.22%** around a mean of -4.31%. Serie A / pi ratings sits 1.8 SD above that mean and
+  is only the *second* largest cell (Bundesliga 2 / XGBoost reaches +15.04%). Taking the
+  best of 60 noisy draws would be expected to land near +2.5 SD, so +12.33% is *less*
+  extreme than chance alone predicts.
+- **The other three models do not share it**: Serie A returns -1.72% (poisson_elo),
+  +0.41% (xgboost), -4.29% (dixon_coles). A genuinely soft league would lift all four.
+- **There is no forecast superiority behind it.** Pi ratings has the second-worst RPS of
+  the four in Serie A (0.2025 vs XGBoost's 0.1937). Profit without better forecasts is
+  luck, not edge.
+- **The value book erases it**: -2.81% over 287 bets. Value betting is the only strategy
+  that could monetise a real edge, and it declines to.
+
+Generalising: 22 of 60 cells (37%) are positive out-of-sample, which is what you get from
+a losing process with per-league samples of ~150 bets. No league survives as an edge.
+
+### Still open / not measured
+- **Basketball, volleyball and MMA** (~300 lines) have no local data, no trained
+  artifact and no backtest coverage. They are genuinely **unvalidated** — not "measured
+  and poor". Reviving basketball needs a free balldontlie API key in `.env`.
+- One Dixon-Coles fit fails out of ~30k matches (Bayern Munich v Greuther Furth —
+  negative probabilities from the tau correction). Caught by the existing handler; the
+  match goes unscored and is dropped from `common` for all four models.
+- `odds_loader.py`: the league key `championship_playoffs` was a mislabel and is now
+  `national_league`. `EC` is football-data.co.uk's National League (English 5th tier).
+  The data was always right; the name wasn't, and no data moved.
+
+---
+
+## 📌 Last Updated: 2026-08-30
+
+**Current status**: Phase 4 complete — four football models measured out-of-sample on an
+identical sample against Pinnacle's close, on both a flat and a value-bet book. The
+headline finding is negative and is meant to be: no model shows an edge, and selecting
+for value makes every one of them worse. The value here is that the measurement is now
+trustworthy enough to say so.
+
+**The open decision** (blocks what gets built next):
+- **Live bot** — keep pushing toward a running prediction service, which means solving
+  the API-Sports tier blocker (§10) and accepting that the picks have no measured edge.
+- **Portfolio piece** — treat this as a finished, honest modelling study. The
+  walk-forward methodology, RPS benchmarking against the closing line, and the
+  adverse-selection result are the interesting output, and they already exist.
+
+**Also blocked on**: a free balldontlie API key (`BALLDONTLIE_KEY` in `.env`) if
+basketball is worth reviving.
+
+**Pending options** (still open from Phase 2):
 - **A) Filter to top-5 leagues** — fits free tier, 30 min of coding, run production same day
 - **B) Upgrade API-Sports** — $19/mo, full 380-fixture pipeline, no code changes
 - **C) Add Understat xG** — live xG enrichment per fixture, requires Path A or B first

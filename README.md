@@ -57,6 +57,19 @@ python backtest.py
 ## Known limitations
 
 The free API-Sports tier (100 requests/day) can't cover a full day's fixture slate — see
-`PROJECT_SUMMARY.md` §10 for the tradeoffs. Backtest accuracy (~46–49%) and ROI are honest
-results from flat-staking every pick against closing odds, not a marketing number —
-beating the bookmaker's margin consistently is a hard problem.
+`PROJECT_SUMMARY.md` §10 for the tradeoffs.
+
+**No model here has a measured edge, and that is the honest headline.** Four football
+models (Poisson-ELO, XGBoost, Pi ratings, Dixon-Coles) were backtested walk-forward
+across 15 leagues and then re-scored on a held-out window, on an identical sample, against
+Pinnacle's closing odds. Out-of-sample ROI is negative for all four (best: XGBoost at
+−1.57%, against a bookmaker margin of roughly 2–3%). Betting only where a model prices an
+outcome above the market — the strategy anyone would actually run — makes every model
+*worse*, which is what adverse selection looks like. Full numbers and reasoning in
+`PROJECT_SUMMARY.md` §13.
+
+Accuracy (~46–49%) is reported alongside RPS, which is the metric that matters: accuracy
+only records which outcome ranked first, while RPS scores the whole distribution.
+
+The basketball, volleyball and MMA paths are **unvalidated** — no local data, no trained
+artifact, no backtest coverage. That is different from measured and poor.
