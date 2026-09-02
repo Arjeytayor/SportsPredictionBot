@@ -3,6 +3,10 @@
 **Date:** 2026-06-13
 **Status:** ✅ Core Architecture Complete | ⚠️ Partial Testing Done | 🔬 Ready for XGBoost Integration
 
+> This file is the raw chronological engineering log, kept as-is including open
+> issues. For the measurement study written up on its own terms — how the models
+> were graded and why the answer is negative — see [`METHODOLOGY.md`](METHODOLOGY.md).
+
 ---
 
 ## 📋 Table of Contents
@@ -421,7 +425,9 @@ matches)**. Note this is the *priced* subset, so RPS here is not comparable to t
 | pi_ratings | 0.2119 | -0.85% | -4.16% |
 | poisson_elo | 0.2176 | -5.60% | -8.28% |
 
-Fitted weights: dixon_coles 0.40, xgboost 0.50, pi_ratings 0.10, **poisson_elo 0.00**.
+Fitted weights, linear pool: xgboost 0.50, dixon_coles 0.40, pi_ratings 0.10,
+**poisson_elo 0.00**. Log pool: dixon_coles 0.50, xgboost 0.40, pi_ratings 0.10,
+**poisson_elo 0.00**.
 
 - **Blending genuinely helps.** Even equal weights (0.2026) beat every individual model.
   Fitting closes a little more, to 0.2009.
@@ -431,9 +437,9 @@ Fitted weights: dixon_coles 0.40, xgboost 0.50, pi_ratings 0.10, **poisson_elo 0
   features, so their errors are correlated and averaging cannot remove what none of them
   knows.
 - **Poisson-ELO earns weight 0.00.** The fitted blend discards it entirely; it carries no
-  information the other three lack. Dixon-Coles 0.50, XGBoost 0.40, Pi ratings 0.10.
+  information the other three lack -- in either pool.
 - **Adverse selection survives ensembling.** The best forecaster here posts the *second
-  worst* value ROI (-9.33%). Better probabilities did not translate into better bets.
+  worst* value ROI (-8.54%). Better probabilities did not translate into better bets.
 - XGBoost's +0.57% flat on this half is noise on 1,125 bets, and its own value book
   (-3.38%) contradicts it.
 
