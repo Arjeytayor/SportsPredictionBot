@@ -1,7 +1,7 @@
 # 🎯 SportsPredictionBot — Project Summary & Progress Log
 
-**Date:** 2026-06-13
-**Status:** ✅ Core Architecture Complete | ⚠️ Partial Testing Done | 🔬 Ready for XGBoost Integration
+**Started:** 2026-06-13 · **Last updated:** 2026-08-30
+**Status:** ✅ Complete as a measurement study — four football models tested out-of-sample; none beats Pinnacle's closing line (see §13)
 
 > This file is the raw chronological engineering log, kept as-is including open
 > issues. For the measurement study written up on its own terms — how the models
@@ -518,17 +518,14 @@ headline finding is negative and is meant to be: no model shows an edge, and sel
 for value makes every one of them worse. The value here is that the measurement is now
 trustworthy enough to say so.
 
-**The open decision** (blocks what gets built next):
-- **Live bot** — keep pushing toward a running prediction service, which means solving
-  the API-Sports tier blocker (§10) and accepting that the picks have no measured edge.
-- **Portfolio piece** — treat this as a finished, honest modelling study. The
-  walk-forward methodology, RPS benchmarking against the closing line, and the
-  adverse-selection result are the interesting output, and they already exist.
+**Decision (2026-08-30): portfolio piece, not a live bot.** With no measured edge,
+running picks live would lose money. The project is treated as a finished, honest
+modelling study — the walk-forward methodology, RPS benchmarking against the closing
+line, and the adverse-selection result are the output, written up in
+[`METHODOLOGY.md`](METHODOLOGY.md).
 
-**Also blocked on**: a free balldontlie API key (`BALLDONTLIE_KEY` in `.env`) if
-basketball is worth reviving.
-
-**Pending options** (still open from Phase 2):
+**Parked, not planned** (would only matter if the live bot were reopened):
+- Basketball revival — needs a free balldontlie API key (`BALLDONTLIE_KEY` in `.env`).
 - **A) Filter to top-5 leagues** — fits free tier, 30 min of coding, run production same day
 - **B) Upgrade API-Sports** — $19/mo, full 380-fixture pipeline, no code changes
 - **C) Add Understat xG** — live xG enrichment per fixture, requires Path A or B first
